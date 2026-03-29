@@ -91,9 +91,9 @@ class GameController extends ChangeNotifier {
     _targetBallX = _currentBallX;
     obstacles.clear();
 
-    // First obstacle appears 300 units ahead (above ball on screen)
-    _nextObstacleWorldY = 300;
-    for (int i = 0; i < 6; i++) {
+    // First obstacle appears well above screen (player has time to see it scroll down)
+    _nextObstacleWorldY = 500;
+    for (int i = 0; i < 8; i++) {
       _spawnObstacle();
     }
     notifyListeners();
@@ -208,6 +208,9 @@ class GameController extends ChangeNotifier {
   }
 
   void _checkCollisions() {
+    // Don't check collisions in the first 1.5 seconds — give player time to see the game
+    if (gameTime < 1.5) return;
+
     final by = ballScreenY;
 
     for (final obs in obstacles) {
@@ -215,29 +218,32 @@ class GameController extends ChangeNotifier {
 
       final sy = obstacleScreenY(obs);
 
-      // Obstacle band: sy ± half height
-      final obsTop = sy - GameConstants.obstacleHeight / 2 - 5;
-      final obsBottom = sy + GameConstants.obstacleHeight / 2 + 5;
+      // Only check obstacles that are on screen and approaching
+      if (sy < -50 || sy > screenHeight + 50) continue;
 
-      // Ball has entered obstacle zone
+      // Collision band — ball centre must overlap obstacle centre ± half height
+      // Use a slightly tighter band (80% of height) so the edges feel forgiving
+      final halfH = GameConstants.obstacleHeight * 0.4;
+      final obsTop    = sy - halfH;
+      final obsBottom = sy + halfH;
+
       if (by >= obsTop && by <= obsBottom) {
-        final ballLaneIdx = currentLane.index; // 0=left,1=center,2=right
+        final ballLaneIdx = currentLane.index; // 0=left, 1=center, 2=right
 
         if (ballLaneIdx == obs.correctLane) {
           obs.passed = true;
           _onCorrectPass(obs);
         } else {
-          // Wrong lane – game over
           triggerGameOver();
           return;
         }
       }
 
-      // Ball passed obstacle without hitting correct lane (shouldn't happen with above logic,
-      // but safety net for very fast speeds)
-      if (by > obsBottom + 20 && !obs.passed) {
-        triggerGameOver();
-        return;
+      // Obstacle has fully scrolled past ball without being passed — mark it
+      // Only do this if the obstacle centre has passed at least 60px below ball
+      // (never fires on the first frame since we gate on gameTime above)
+      if (sy > by + GameConstants.obstacleHeight && !obs.passed) {
+        obs.passed = true; // silently skip — don't punish extremely early frames
       }
     }
   }

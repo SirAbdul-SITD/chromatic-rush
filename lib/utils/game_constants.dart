@@ -42,9 +42,9 @@ class GameConstants {
   static const double ballStartYFraction = 0.75;
 
   // Obstacle
-  static const double obstacleHeight = 60.0;
-  static const double obstacleSpacing = 250.0;
-  static const double gateWidth = 60.0;
+  static const double obstacleHeight = 120.0;   // 2× taller tiles
+  static const double obstacleSpacing = 380.0;  // wider gap between rows
+  static const double gateWidth = 64.0;
 
   // Speed phases
   static const double phase1Speed = 200.0;

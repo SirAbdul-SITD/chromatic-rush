@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../game/game_controller.dart';
 import '../game/game_painter.dart';
 import '../utils/game_constants.dart';
+import '../utils/audio_manager.dart';
+import '../utils/settings_manager.dart';
 import '../utils/score_history_manager.dart';
 import 'game_over_screen.dart';
 
@@ -18,10 +21,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   late AnimationController _loopController;
   late AnimationController _comboController;
   late Animation<double> _comboScale;
+  final AudioManager _audio = AudioManager();
 
   Timer? _gameLoopTimer;
   DateTime _lastUpdate = DateTime.now();
   bool _initialized = false;
+  int _lastScore = 0; // track score changes to trigger sound
 
   @override
   void initState() {
@@ -47,6 +52,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     super.didChangeDependencies();
     if (!_initialized) {
       _initialized = true;
+      final settings = context.read<SettingsManager>();
+      _audio.init(settings).then((_) => _audio.startMusic());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           final size = MediaQuery.of(context).size;
@@ -69,13 +76,22 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       if (_controller.engineState == GameEngineState.playing) {
         _controller.update(dt.clamp(0.0, 0.05));
 
-        if (_controller.showComboEffect) {
-          _comboController.forward(from: 0);
+        // Score increased → correct pass sound
+        if (_controller.score > _lastScore) {
+          _lastScore = _controller.score;
+          if (_controller.showComboEffect) {
+            _audio.playCombo();
+            _comboController.forward(from: 0);
+          } else {
+            _audio.playCorrectPass();
+          }
         }
       }
 
       if (_controller.engineState == GameEngineState.over) {
         _gameLoopTimer?.cancel();
+        _audio.playLose();
+        _audio.stopMusic();
         _onGameOver();
       }
     });
@@ -108,12 +124,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _loopController.dispose();
     _comboController.dispose();
     _controller.dispose();
+    _audio.stopMusic();
     super.dispose();
   }
 
   void _handleTap(TapUpDetails details) {
     if (_controller.engineState != GameEngineState.playing) return;
     final tapX = details.localPosition.dx;
+    _audio.playTap();
     if (tapX < screenWidth / 2) {
       _controller.onTapLeft();
     } else {
@@ -242,7 +260,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           const Spacer(),
           GestureDetector(
             onTap: () {
-              if (_controller.engineState == GameEngineState.playing) _controller.pause();
+              if (_controller.engineState == GameEngineState.playing) {
+                _controller.pause();
+                _audio.pauseMusic();
+              }
             },
             child: Container(
               padding: const EdgeInsets.all(10),
@@ -297,7 +318,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               const Text('PAUSED', style: TextStyle(fontSize: 38, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 8)),
               const SizedBox(height: 36),
               GestureDetector(
-                onTap: _controller.resume,
+                onTap: () {
+                  _controller.resume();
+                  _audio.resumeMusic();
+                },
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 44, vertical: 18),
                   decoration: BoxDecoration(

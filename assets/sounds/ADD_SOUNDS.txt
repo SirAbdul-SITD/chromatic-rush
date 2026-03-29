@@ -1,0 +1,11 @@
+Add the following audio files (MP3 or OGG format):
+  - tap.mp3        → Soft click on lane switch
+  - pass.mp3       → Sharp satisfying ping on correct gate
+  - combo.mp3      → Rising tone on combo streak
+  - lose.mp3       → Short impact sound on game over
+  - music.mp3      → Looping background ambient track
+
+Recommended free sources:
+  - freesound.org
+  - zapsplat.com
+  - opengameart.org
