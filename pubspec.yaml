@@ -28,6 +28,10 @@ flutter:
   assets:
     - assets/images/
     - assets/sounds/
+    - assets/sounds/music_p1.mp3
+    - assets/sounds/music_p2.mp3
+    - assets/sounds/music_p3.mp3
+    - assets/sounds/music_p4.mp3
   fonts:
     - family: Orbitron
       fonts:

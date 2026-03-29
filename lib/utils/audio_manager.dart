@@ -6,93 +6,101 @@ class AudioManager {
   factory AudioManager() => _instance;
   AudioManager._internal();
 
-  // Use a pool of SFX players so rapid sounds don't cut each other off
-  final List<AudioPlayer> _sfxPool = List.generate(4, (_) => AudioPlayer());
-  int _sfxPoolIndex = 0;
+  final List<AudioPlayer> _sfxPool = List.generate(5, (_) => AudioPlayer());
+  int _sfxIdx = 0;
 
   final AudioPlayer _musicPlayer = AudioPlayer();
-  bool _musicStarted = false;
+  int _currentMusicPhase = 0; // 0=none, 1-4=phase
+  bool _musicActive = false;
 
   SettingsManager? _settings;
 
+  static const _musicAssets = {
+    1: 'sounds/music_p1.mp3',
+    2: 'sounds/music_p2.mp3',
+    3: 'sounds/music_p3.mp3',
+    4: 'sounds/music_p4.mp3',
+  };
+
   Future<void> init(SettingsManager settings) async {
     _settings = settings;
-    // Pre-configure music player for looping
     await _musicPlayer.setReleaseMode(ReleaseMode.loop);
-    await _musicPlayer.setVolume(0.45);
+    await _musicPlayer.setVolume(0.5);
     for (final p in _sfxPool) {
       await p.setVolume(0.75);
     }
   }
 
-  // Round-robin SFX player so overlapping sounds don't cancel
   AudioPlayer get _nextSfx {
-    final p = _sfxPool[_sfxPoolIndex % _sfxPool.length];
-    _sfxPoolIndex++;
+    final p = _sfxPool[_sfxIdx % _sfxPool.length];
+    _sfxIdx++;
     return p;
   }
 
+  // ── SFX ───────────────────────────────────────────────────
   Future<void> playTap() async {
     if (!(_settings?.soundEnabled ?? true)) return;
-    try {
-      await _nextSfx.play(AssetSource('sounds/tap.mp3'), volume: 0.6);
-    } catch (_) {}
+    try { await _nextSfx.play(AssetSource('sounds/tap.mp3'), volume: 0.6); } catch (_) {}
   }
 
   Future<void> playCorrectPass() async {
     if (!(_settings?.soundEnabled ?? true)) return;
-    try {
-      await _nextSfx.play(AssetSource('sounds/pass.mp3'), volume: 0.75);
-    } catch (_) {}
+    try { await _nextSfx.play(AssetSource('sounds/pass.mp3'), volume: 0.75); } catch (_) {}
   }
 
   Future<void> playLose() async {
     if (!(_settings?.soundEnabled ?? true)) return;
-    try {
-      await _nextSfx.play(AssetSource('sounds/lose.mp3'), volume: 0.85);
-    } catch (_) {}
+    try { await _nextSfx.play(AssetSource('sounds/lose.mp3'), volume: 0.9); } catch (_) {}
   }
 
   Future<void> playCombo() async {
     if (!(_settings?.soundEnabled ?? true)) return;
+    try { await _nextSfx.play(AssetSource('sounds/combo.mp3'), volume: 0.85); } catch (_) {}
+  }
+
+  // ── Music with phase switching ─────────────────────────────
+  Future<void> startMusic({int phase = 1}) async {
+    if (!(_settings?.musicEnabled ?? true)) return;
+    _musicActive = true;
+    _currentMusicPhase = phase;
+    final asset = _musicAssets[phase] ?? _musicAssets[1]!;
     try {
-      await _nextSfx.play(AssetSource('sounds/combo.mp3'), volume: 0.8);
+      await _musicPlayer.stop();
+      await _musicPlayer.play(AssetSource(asset));
     } catch (_) {}
   }
 
-  Future<void> startMusic() async {
+  /// Call this when the game phase changes — seamlessly switches track
+  Future<void> setMusicPhase(int phase) async {
+    if (!_musicActive) return;
+    if (phase == _currentMusicPhase) return;
     if (!(_settings?.musicEnabled ?? true)) return;
-    if (_musicStarted) return;
+    _currentMusicPhase = phase;
+    final asset = _musicAssets[phase] ?? _musicAssets[4]!;
     try {
-      _musicStarted = true;
-      await _musicPlayer.play(AssetSource('sounds/music.mp3'));
+      // Get current position to attempt seamless ish switch
+      await _musicPlayer.stop();
+      await _musicPlayer.play(AssetSource(asset));
     } catch (_) {}
   }
 
   Future<void> stopMusic() async {
-    _musicStarted = false;
-    try {
-      await _musicPlayer.stop();
-    } catch (_) {}
+    _musicActive = false;
+    _currentMusicPhase = 0;
+    try { await _musicPlayer.stop(); } catch (_) {}
   }
 
   Future<void> pauseMusic() async {
-    try {
-      await _musicPlayer.pause();
-    } catch (_) {}
+    try { await _musicPlayer.pause(); } catch (_) {}
   }
 
   Future<void> resumeMusic() async {
     if (!(_settings?.musicEnabled ?? true)) return;
-    try {
-      await _musicPlayer.resume();
-    } catch (_) {}
+    try { await _musicPlayer.resume(); } catch (_) {}
   }
 
-  Future<void> dispose() async {
-    for (final p in _sfxPool) {
-      await p.dispose();
-    }
+  Future<void> disposeAll() async {
+    for (final p in _sfxPool) { await p.dispose(); }
     await _musicPlayer.dispose();
   }
 }

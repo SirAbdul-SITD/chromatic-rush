@@ -5,21 +5,26 @@ import '../utils/game_constants.dart';
 class ObstacleData {
   final String id;
   final ObstacleType type;
-  double yPosition; // World position (increases as ball moves up)
-  final List<Color> laneColors; // Colors for left, center, right lanes
-  final Color matchColor; // The color ball must match
-  final int correctLane; // 0=left, 1=center, 2=right
+  double yPosition;
+  final List<Color> laneColors;
+  final Color matchColor;
+  int correctLane; // MUTABLE — moving wall updates this each frame
   bool passed;
   bool isColorChanger;
 
-  // For rotating bar
+  // Hit animation state
+  bool hitSuccess = false;
+  bool hitFail = false;
+  double hitAge = 0.0; // 0..1, animated by controller
+  int hitLane = -1;   // which lane was hit
+
+  // Rotating bar / split ring
   double rotationAngle;
   final double rotationSpeed;
 
-  // For moving wall
-  double wallOffset;
-  final double wallSpeed;
-  final bool wallMovesRight;
+  // Moving wall — wallFraction oscillates -1..+1
+  double wallFraction;
+  final double wallSpeed; // fraction per second
 
   ObstacleData({
     required this.id,
@@ -32,9 +37,8 @@ class ObstacleData {
     this.isColorChanger = false,
     this.rotationAngle = 0,
     this.rotationSpeed = 1.5,
-    this.wallOffset = 0,
-    this.wallSpeed = 100,
-    this.wallMovesRight = true,
+    this.wallFraction = -1.0,
+    this.wallSpeed = 0.8,
   });
 
   static ObstacleData generate({
@@ -45,37 +49,40 @@ class ObstacleData {
   }) {
     final random = Random();
 
-    // Which type to use based on phase
+    // Type distribution per phase
     ObstacleType type;
     if (phase == 1) {
       type = ObstacleType.colorGate;
     } else if (phase == 2) {
-      final r = random.nextInt(3);
+      type = [
+        ObstacleType.colorGate,
+        ObstacleType.colorGate,
+        ObstacleType.rotatingBar,
+        ObstacleType.movingWall,
+      ][random.nextInt(4)];
+    } else {
       type = [
         ObstacleType.colorGate,
         ObstacleType.rotatingBar,
         ObstacleType.movingWall,
-      ][r];
-    } else {
-      final r = random.nextInt(5);
-      type = ObstacleType.values[r];
+        ObstacleType.splitRing,
+        ObstacleType.colorChangeGate,
+      ][random.nextInt(5)];
     }
 
-    // Pick colors for lanes
+    // Build lane colors — one lane always matches ball
     final allColors = List<Color>.from(GameColors.gameColors)..remove(ballColor);
     allColors.shuffle(random);
-
     final correctLane = random.nextInt(3);
-
-    final List<Color> laneColors = [
-      allColors[0],
-      allColors[1],
-      allColors[2],
-    ];
+    final laneColors = [allColors[0], allColors[1], allColors[2]];
     laneColors[correctLane] = ballColor;
 
     final bool isColorChanger = type == ObstacleType.colorChangeGate ||
-        (phase >= 3 && random.nextDouble() < 0.2);
+        (phase >= 3 && random.nextDouble() < 0.15);
+
+    // Moving wall starts with gap at left lane (fraction = -1.0)
+    // wallFraction: -1=left lane, 0=center, +1=right lane
+    final startFraction = [-1.0, 0.0, 1.0][random.nextInt(3)];
 
     return ObstacleData(
       id: id,
@@ -85,16 +92,22 @@ class ObstacleData {
       matchColor: ballColor,
       correctLane: correctLane,
       isColorChanger: isColorChanger,
-      rotationSpeed: phase == 4 ? 3.0 : 1.5,
-      wallSpeed: phase >= 3 ? 150 : 100,
-      wallMovesRight: random.nextBool(),
+      rotationSpeed: phase == 4 ? 2.8 : (phase == 3 ? 2.0 : 1.5),
+      wallFraction: startFraction,
+      wallSpeed: phase >= 3 ? 1.1 : 0.75,
     );
   }
 
   Color get newBallColor {
-    // If color changer, pick a random different color
-    final others = GameColors.gameColors.where((c) => c != matchColor).toList();
-    others.shuffle();
+    final others = GameColors.gameColors.where((c) => c != matchColor).toList()..shuffle();
     return others.first;
+  }
+
+  /// For moving walls: returns which lane (0/1/2) the gap is currently in
+  int get wallLane {
+    // wallFraction: -1=left, 0=center, +1=right
+    if (wallFraction < -0.33) return 0;
+    if (wallFraction < 0.33) return 1;
+    return 2;
   }
 }
