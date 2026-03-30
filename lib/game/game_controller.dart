@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/obstacle_data.dart';
 import '../utils/game_constants.dart';
 
@@ -21,14 +22,16 @@ class GameController extends ChangeNotifier {
 
   // ── Score ────────────────────────────────────────────────
   int score = 0;
-  int bestScore = 0;
+  int bestScore = 0;    // loaded from prefs at startGame
   int combo = 0;
   double gameTime = 0;
   int _passCount = 0;
+  int _nextColorChangeAt = 4; // randomised 3-6 each time
 
   // ── Ball ─────────────────────────────────────────────────
   Lane currentLane = Lane.center;
   Color ballColor = GameColors.blue;
+  BallSkin activeSkin = BallSkin.neon;   // set from SkinManager before startGame
   double _targetBallX = 0;
   double _currentBallX = 0;
 
@@ -36,14 +39,15 @@ class GameController extends ChangeNotifier {
   double _worldOffset = 0;
   double _nextObstacleWorldY = 0;
   double _idCounter = 0;
+  ObstacleType? _lastSpawnedType;   // for consecutive-type prevention
   final List<ObstacleData> obstacles = [];
 
   // ── Visual effects ───────────────────────────────────────
   bool showComboEffect = false;
   bool showColorChangeEffect = false;
   bool showPhaseUpBanner = false;
-  int lastBannerPhase = 0;
-  double shakeAmount = 0; // pixels — decays each frame
+  int  lastBannerPhase = 0;
+  double shakeAmount = 0;
   final List<TileEffect> tileEffects = [];
   Timer? _comboTimer;
   Timer? _bannerTimer;
@@ -53,9 +57,9 @@ class GameController extends ChangeNotifier {
   double screenHeight = 812;
 
   // ── Getters ──────────────────────────────────────────────
-  double get worldOffset => _worldOffset;
-  double get ballScreenX => _currentBallX;
-  double get ballScreenY => screenHeight * GameConstants.ballStartYFraction;
+  double get worldOffset  => _worldOffset;
+  double get ballScreenX  => _currentBallX;
+  double get ballScreenY  => screenHeight * GameConstants.ballStartYFraction;
 
   int get currentPhase {
     if (gameTime < GameConstants.phase2Time) return 1;
@@ -64,7 +68,7 @@ class GameController extends ChangeNotifier {
     return 4;
   }
 
-  /// Smoothly interpolated speed — ramps over 2 seconds between phase thresholds
+  /// Smooth cubic ramp between phase speeds over 3 seconds
   double get currentSpeed {
     final p = currentPhase;
     final speeds = [
@@ -73,16 +77,11 @@ class GameController extends ChangeNotifier {
       GameConstants.phase3Speed,
       GameConstants.phase4Speed,
     ];
-
     if (p >= 4) return GameConstants.phase4Speed;
-
     final thresholds = [0.0, GameConstants.phase2Time, GameConstants.phase3Time, GameConstants.phase4Time];
-    final rampDuration = 2.5; // seconds to ramp to next speed
-    final timeIntoPhase = gameTime - thresholds[p - 1];
-    final t = (timeIntoPhase / rampDuration).clamp(0.0, 1.0);
-    // Smooth cubic interpolation
-    final smoothT = t * t * (3 - 2 * t);
-    return speeds[p - 1] + (speeds[p] - speeds[p - 1]) * smoothT;
+    final t = ((gameTime - thresholds[p - 1]) / 3.0).clamp(0.0, 1.0);
+    final smooth = t * t * (3 - 2 * t);
+    return speeds[p - 1] + (speeds[p] - speeds[p - 1]) * smooth;
   }
 
   double getLaneX(Lane lane) {
@@ -99,26 +98,41 @@ class GameController extends ChangeNotifier {
       ballScreenY - (obs.yPosition - _worldOffset);
 
   // ── Lifecycle ─────────────────────────────────────────────
-  void startGame(double sw, double sh) {
+  Future<void> startGame(double sw, double sh, {BallSkin skin = BallSkin.neon}) async {
     screenWidth = sw;
     screenHeight = sh;
+    activeSkin = skin;
+
+    // Load saved best score — use same fresh key as GameState
+    final prefs = await SharedPreferences.getInstance();
+    bestScore = prefs.getInt('best_score_v2') ?? 0;
+
     engineState = GameEngineState.playing;
     score = 0; combo = 0; _passCount = 0;
     gameTime = 0; _worldOffset = 0; _idCounter = 0;
     lastBannerPhase = 1; shakeAmount = 0;
+    _lastSpawnedType = null;
+    _nextColorChangeAt = _randomColorInterval();
     showComboEffect = false; showColorChangeEffect = false; showPhaseUpBanner = false;
     currentLane = Lane.center;
-    ballColor = GameColors.blue;
+    // Use skin primary color as starting ball color
+    ballColor = skin.primaryColor;
     _currentBallX = getLaneX(Lane.center);
     _targetBallX = _currentBallX;
     obstacles.clear();
     tileEffects.clear();
 
-    // First tile appears ~2.6 seconds ahead at phase 1 speed (200*520/200 = 2.6s)
     _nextObstacleWorldY = 520;
     for (int i = 0; i < 10; i++) _spawnObstacle();
     notifyListeners();
   }
+
+  Future<void> _saveBestScore() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('best_score_v2', bestScore);
+  }
+
+  int _randomColorInterval() => 3 + Random().nextInt(4); // 3, 4, 5, or 6
 
   void pause() {
     if (engineState == GameEngineState.playing) {
@@ -135,33 +149,34 @@ class GameController extends ChangeNotifier {
   }
 
   void triggerGameOver() {
+    if (engineState == GameEngineState.over) return;
     engineState = GameEngineState.over;
-    shakeAmount = 18.0; // screen shake on death
+    shakeAmount = 18.0;
     notifyListeners();
   }
 
   // ── Input ─────────────────────────────────────────────────
   void onMoveLeft() {
     if (engineState != GameEngineState.playing) return;
-    if (currentLane == Lane.right)  currentLane = Lane.center;
-    else if (currentLane == Lane.center) currentLane = Lane.left;
+    if (currentLane == Lane.right)        currentLane = Lane.center;
+    else if (currentLane == Lane.center)  currentLane = Lane.left;
     _targetBallX = getLaneX(currentLane);
     notifyListeners();
   }
 
   void onMoveRight() {
     if (engineState != GameEngineState.playing) return;
-    if (currentLane == Lane.left)   currentLane = Lane.center;
-    else if (currentLane == Lane.center) currentLane = Lane.right;
+    if (currentLane == Lane.left)         currentLane = Lane.center;
+    else if (currentLane == Lane.center)  currentLane = Lane.right;
     _targetBallX = getLaneX(currentLane);
     notifyListeners();
   }
 
-  // ── Main update ───────────────────────────────────────────
+  // ── Update ────────────────────────────────────────────────
   void update(double dt) {
     if (engineState != GameEngineState.playing) return;
 
-    // Phase-up banner
+    // Phase banner
     final phase = currentPhase;
     if (phase > lastBannerPhase) {
       lastBannerPhase = phase;
@@ -171,39 +186,53 @@ class GameController extends ChangeNotifier {
     gameTime += dt;
     _worldOffset += currentSpeed * dt;
 
-    // Ball X: faster snap at higher speed so player can keep up
-    final snapFactor = 14.0 + currentSpeed * 0.01;
-    _currentBallX += (_targetBallX - _currentBallX) * snapFactor * dt;
+    // Ball X snap — faster at higher speed
+    final snap = 14.0 + currentSpeed * 0.012;
+    _currentBallX += (_targetBallX - _currentBallX) * snap * dt;
 
-    // Decay screen shake
-    if (shakeAmount > 0) {
-      shakeAmount = (shakeAmount - dt * 80).clamp(0.0, 20.0);
-    }
+    // Shake decay
+    if (shakeAmount > 0) shakeAmount = (shakeAmount - dt * 80).clamp(0.0, 20.0);
 
-    // Obstacle animation
+    // Animate obstacles
     for (final obs in obstacles) {
+      if (obs.passed) continue;
+
+      final sy = obstacleScreenY(obs);
+
       if (obs.type == ObstacleType.rotatingBar || obs.type == ObstacleType.splitRing) {
         obs.rotationAngle += obs.rotationSpeed * dt;
       }
+
       if (obs.type == ObstacleType.movingWall) {
-        obs.rotationAngle += obs.wallSpeed * dt;
-        obs.wallFraction = sin(obs.rotationAngle);
-        obs.correctLane  = obs.wallLane;
+        // FIX: Freeze wall movement when ball is within 200px — gives player time to react
+        final distanceToBall = sy - ballScreenY;
+        if (!obs.wallFrozen && distanceToBall < 200 && distanceToBall > -50) {
+          obs.wallFrozen = true;
+          // Lock correctLane to current wallLane at freeze moment
+          obs.correctLane = obs.wallLane;
+        }
+        if (!obs.wallFrozen) {
+          obs.rotationAngle += obs.wallSpeed * dt;
+          obs.wallFraction = sin(obs.rotationAngle);
+          obs.correctLane  = obs.wallLane;
+        }
+        // Once frozen, wallFraction stays fixed — no more updating
       }
+
       if ((obs.hitSuccess || obs.hitFail) && obs.hitAge < 1.0) {
         obs.hitAge = (obs.hitAge + dt * 2.8).clamp(0.0, 1.0);
       }
     }
 
-    // Tile effects
+    // Tile effects age
     tileEffects.removeWhere((e) { e.age += dt * 2.0; return e.age >= 1.0; });
 
     // Spawn ahead
-    while (_nextObstacleWorldY < _worldOffset + screenHeight * 2.0) _spawnObstacle();
+    while (_nextObstacleWorldY < _worldOffset + screenHeight * 2.2) _spawnObstacle();
 
     _checkCollisions();
 
-    // Cull obstacles below ball
+    // Cull
     obstacles.removeWhere((obs) => obstacleScreenY(obs) > screenHeight + 200);
 
     notifyListeners();
@@ -211,12 +240,15 @@ class GameController extends ChangeNotifier {
 
   void _spawnObstacle() {
     _idCounter++;
-    obstacles.add(ObstacleData.generate(
+    final obs = ObstacleData.generate(
       yPosition: _nextObstacleWorldY,
       ballColor: ballColor,
       phase: currentPhase,
       id: _idCounter.toStringAsFixed(0),
-    ));
+      lastType: _lastSpawnedType,
+    );
+    _lastSpawnedType = obs.type;
+    obstacles.add(obs);
     _nextObstacleWorldY += GameConstants.obstacleSpacing;
   }
 
@@ -230,14 +262,15 @@ class GameController extends ChangeNotifier {
       if (obs.passed) continue;
 
       final sy = obstacleScreenY(obs);
-      if (sy < -120 || sy > screenHeight + 120) continue;
+      if (sy < -150 || sy > screenHeight + 150) continue;
 
       final halfH = GameConstants.obstacleHeight * 0.44;
 
       if (by >= sy - halfH && by <= sy + halfH) {
         obs.passed = true;
-        final ballIdx = currentLane.index;
-        final reqLane = obs.type == ObstacleType.movingWall ? obs.wallLane : obs.correctLane;
+        final ballIdx  = currentLane.index;
+        // For moving wall use the frozen correctLane
+        final reqLane  = obs.correctLane;
 
         if (ballIdx == reqLane) {
           _onCorrectPass(obs, sy, reqLane);
@@ -247,7 +280,7 @@ class GameController extends ChangeNotifier {
         }
       }
 
-      // Silently skip obstacles the ball has passed without touching
+      // Silently skip obstacles that slipped past
       if (sy > by + GameConstants.obstacleHeight * 0.55 && !obs.passed) {
         obs.passed = true;
       }
@@ -258,11 +291,14 @@ class GameController extends ChangeNotifier {
     _passCount++;
     score++;
     combo++;
-    if (score > bestScore) bestScore = score;
+    if (score > bestScore) {
+      bestScore = score;
+      _saveBestScore(); // persist immediately when new best
+    }
 
     obs.hitSuccess = true;
-    obs.hitAge = 0.0;
-    obs.hitLane = passedLane; // the lane ball was actually in
+    obs.hitAge     = 0.0;
+    obs.hitLane    = passedLane;
 
     tileEffects.add(TileEffect(
       x: getLaneXByIndex(passedLane),
@@ -276,17 +312,20 @@ class GameController extends ChangeNotifier {
       _triggerComboEffect();
     }
 
-    // Auto color change — phase 3: every 3 passes, phase 4: every 2
+    // Color change: starts at phase 2, every _nextColorChangeAt passes (3-6)
     final shouldChange = obs.isColorChanger
-        || (currentPhase == 3 && _passCount % 3 == 0)
-        || (currentPhase >= 4 && _passCount % 2 == 0);
+        || (currentPhase >= 2 && _passCount >= _nextColorChangeAt);
 
-    if (shouldChange) _changeBallColor(obs.newBallColor, sy);
+    if (shouldChange) {
+      _passCount = 0; // reset counter
+      _nextColorChangeAt = _randomColorInterval();
+      _changeBallColor(obs.newBallColor, sy);
+    }
   }
 
   void _onWrongLane(ObstacleData obs, int ballIdx, double sy) {
     obs.hitFail = true;
-    obs.hitAge = 0.0;
+    obs.hitAge  = 0.0;
     obs.hitLane = ballIdx;
 
     tileEffects.add(TileEffect(
@@ -303,35 +342,29 @@ class GameController extends ChangeNotifier {
     ballColor = newColor;
     showColorChangeEffect = true;
     _refreshUpcomingColors(nearSy);
-    Future.delayed(const Duration(milliseconds: 320), () {
+    Future.delayed(const Duration(milliseconds: 350), () {
       showColorChangeEffect = false;
       notifyListeners();
     });
   }
 
-  /// Regenerate colors on obstacles that are far enough ahead of the ball
   void _refreshUpcomingColors(double changedAtSy) {
     final random = Random();
-    final safeMargin = GameConstants.obstacleSpacing * 0.8;
+    // Only refresh obstacles that are far enough above the ball (safe margin)
+    final safeScreenY = changedAtSy - GameConstants.obstacleSpacing * 0.9;
 
     for (final obs in obstacles) {
       if (obs.passed) continue;
       final sy = obstacleScreenY(obs);
-      // Only refresh obstacles that are still well above ball (far ahead)
-      if (sy > changedAtSy - safeMargin) continue;
+      if (sy > safeScreenY) continue; // too close — don't change
 
-      final others = List<Color>.from(GameColors.gameColors)..remove(ballColor);
-      others.shuffle(random);
+      final others = List<Color>.from(GameColors.gameColors)..remove(ballColor)..shuffle(random);
       final newCorrect = random.nextInt(3);
-
-      // Build 3 distinct colors: one slot = ballColor, rest from others
-      final threeColors = others.take(2).toList();
       obs.laneColors[newCorrect] = ballColor;
       int fill = 0;
       for (int i = 0; i < 3; i++) {
-        if (i != newCorrect) obs.laneColors[i] = threeColors[fill++];
+        if (i != newCorrect) obs.laneColors[i] = others[fill++];
       }
-      // Only update correctLane if obstacle doesn't have a dynamic lane (moving wall)
       if (obs.type != ObstacleType.movingWall) {
         obs.correctLane = newCorrect;
       }
@@ -350,7 +383,7 @@ class GameController extends ChangeNotifier {
   void _triggerPhaseUpBanner() {
     showPhaseUpBanner = true;
     _bannerTimer?.cancel();
-    _bannerTimer = Timer(const Duration(milliseconds: 1800), () {
+    _bannerTimer = Timer(const Duration(milliseconds: 2000), () {
       showPhaseUpBanner = false;
       notifyListeners();
     });

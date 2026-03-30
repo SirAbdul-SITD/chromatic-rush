@@ -5,206 +5,120 @@ import '../utils/game_constants.dart';
 import '../utils/skin_manager.dart';
 import '../utils/game_state.dart';
 
-class SkinsScreen extends StatelessWidget {
+class SkinsScreen extends StatefulWidget {
   const SkinsScreen({super.key});
+  @override
+  State<SkinsScreen> createState() => _SkinsScreenState();
+}
+
+class _SkinsScreenState extends State<SkinsScreen> with SingleTickerProviderStateMixin {
+  late AnimationController _animCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _animCtrl = AnimationController(duration: const Duration(seconds: 3), vsync: this)..repeat();
+  }
+
+  @override
+  void dispose() {
+    _animCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final skinManager = context.watch<SkinManager>();
-    final gameState = context.watch<GameState>();
+    final gameState   = context.watch<GameState>();
+    final best        = gameState.bestScore;
 
     return Scaffold(
       backgroundColor: GameColors.background,
       body: SafeArea(
         child: Column(
           children: [
-            // Header
+            // ── Header ─────────────────────────────────────
             Padding(
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: [
                   GestureDetector(
                     onTap: () => Navigator.pop(context),
-                    child: const Icon(Icons.arrow_back_ios,
-                        color: Colors.white70, size: 20),
+                    child: const Icon(Icons.arrow_back_ios, color: Colors.white70, size: 20),
                   ),
                   const Expanded(
-                    child: Text(
-                      'BALL SKINS',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: 4,
-                      ),
-                    ),
+                    child: Text('BALL SKINS', textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
+                            color: Colors.white, letterSpacing: 4)),
                   ),
                   const SizedBox(width: 20),
                 ],
               ),
             ),
 
-            // Best score indicator
+            // ── Best score bar ─────────────────────────────
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               decoration: BoxDecoration(
                 color: const Color(0xFF0D0D2B),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: const Color(0xFFFFD700).withOpacity(0.3)),
+                border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.3)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'YOUR BEST SCORE',
-                    style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
-                        fontSize: 10,
-                        letterSpacing: 2),
-                  ),
-                  Text(
-                    gameState.bestScore.toString(),
-                    style: const TextStyle(
-                      color: Color(0xFFFFD700),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+                  Text('YOUR BEST SCORE',
+                      style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10, letterSpacing: 2)),
+                  Text(best.toString(),
+                      style: const TextStyle(color: Color(0xFFFFD700), fontSize: 18, fontWeight: FontWeight.w800)),
                 ],
               ),
             ),
 
             const SizedBox(height: 8),
 
-            // Skin grid
+            // ── Skin grid ──────────────────────────────────
             Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.all(20),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: 0.85,
-                ),
-                itemCount: BallSkin.values.length,
-                itemBuilder: (context, i) {
-                  final skin = BallSkin.values[i];
-                  final isUnlocked = skinManager.isSkinUnlocked(skin);
-                  final isSelected = skinManager.selectedSkin == skin;
-
-                  return GestureDetector(
-                    onTap: () {
-                      if (isUnlocked) {
-                        skinManager.selectSkin(skin);
-                      }
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0D0D2B),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: isSelected
-                              ? skin.primaryColor
-                              : isUnlocked
-                                  ? Colors.white12
-                                  : Colors.white.withOpacity(0.05),
-                          width: isSelected ? 2 : 1,
-                        ),
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                  color: skin.primaryColor.withOpacity(0.3),
-                                  blurRadius: 16,
-                                  spreadRadius: 2,
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // Ball preview
-                          SizedBox(
-                            width: 80,
-                            height: 80,
-                            child: CustomPaint(
-                              painter: _BallSkinPainter(
-                                skin: skin,
-                                isUnlocked: isUnlocked,
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 12),
-
-                          Text(
-                            skin.displayName.toUpperCase(),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: isUnlocked
-                                  ? Colors.white
-                                  : Colors.white38,
-                              letterSpacing: 2,
-                            ),
-                          ),
-
-                          const SizedBox(height: 4),
-
-                          if (!isUnlocked)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.lock_rounded,
-                                    color: Colors.white38, size: 12),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'SCORE ${skin.requiredScore}',
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.white38,
-                                    letterSpacing: 1,
-                                  ),
-                                ),
-                              ],
-                            )
-                          else if (isSelected)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: skin.primaryColor.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                'SELECTED',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: skin.primaryColor,
-                                  letterSpacing: 2,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            )
-                          else
-                            Text(
-                              'UNLOCKED',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: GameColors.neonGreen.withOpacity(0.8),
-                                letterSpacing: 1,
-                              ),
-                            ),
-                        ],
-                      ),
+              child: AnimatedBuilder(
+                animation: _animCtrl,
+                builder: (context, _) {
+                  return GridView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 14,
+                      crossAxisSpacing: 14,
+                      childAspectRatio: 0.82,
                     ),
+                    itemCount: BallSkin.values.length,
+                    itemBuilder: (context, i) {
+                      final skin      = BallSkin.values[i];
+                      final unlocked  = skinManager.isSkinUnlocked(skin);
+                      final selected  = skinManager.selectedSkin == skin;
+                      return _SkinCard(
+                        skin: skin,
+                        unlocked: unlocked,
+                        selected: selected,
+                        best: best,
+                        animValue: _animCtrl.value,
+                        onTap: () {
+                          if (unlocked) skinManager.selectSkin(skin);
+                        },
+                      );
+                    },
                   );
                 },
+              ),
+            ),
+
+            // ── Unlock hint ────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+              child: Text(
+                'Skins unlock every 30 best-score points',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 11, letterSpacing: 1),
               ),
             ),
           ],
@@ -214,129 +128,244 @@ class SkinsScreen extends StatelessWidget {
   }
 }
 
-class _BallSkinPainter extends CustomPainter {
+class _SkinCard extends StatelessWidget {
   final BallSkin skin;
-  final bool isUnlocked;
+  final bool unlocked, selected;
+  final int best;
+  final double animValue;
+  final VoidCallback onTap;
 
-  _BallSkinPainter({required this.skin, required this.isUnlocked});
+  const _SkinCard({
+    required this.skin,
+    required this.unlocked,
+    required this.selected,
+    required this.best,
+    required this.animValue,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (best / skin.requiredScore).clamp(0.0, 1.0);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D0D2B),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected
+                ? skin.primaryColor
+                : unlocked
+                    ? skin.primaryColor.withOpacity(0.3)
+                    : Colors.white.withOpacity(0.07),
+            width: selected ? 2.2 : 1,
+          ),
+          boxShadow: selected
+              ? [BoxShadow(color: skin.primaryColor.withOpacity(0.35), blurRadius: 18, spreadRadius: 2)]
+              : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Ball preview with live skin effects
+            SizedBox(
+              width: 88,
+              height: 88,
+              child: CustomPaint(
+                painter: _SkinBallPainter(
+                  skin: skin,
+                  unlocked: unlocked,
+                  animValue: animValue,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // Emoji + name
+            Text(skin.emoji, style: const TextStyle(fontSize: 18)),
+            const SizedBox(height: 2),
+            Text(
+              skin.displayName.toUpperCase(),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: unlocked ? Colors.white : Colors.white38,
+                letterSpacing: 1.5,
+              ),
+            ),
+
+            const SizedBox(height: 6),
+
+            // Status badge / progress
+            if (skin.requiredScore == 0)
+              _badge('DEFAULT', GameColors.neonBlue)
+            else if (selected)
+              _badge('EQUIPPED', skin.primaryColor)
+            else if (unlocked)
+              _badge('UNLOCKED ✓', GameColors.neonGreen)
+            else ...[
+              Text(
+                'SCORE ${skin.requiredScore}',
+                style: TextStyle(color: Colors.white38, fontSize: 9, letterSpacing: 1.5),
+              ),
+              const SizedBox(height: 5),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: Colors.white.withOpacity(0.05),
+                    valueColor: AlwaysStoppedAnimation<Color>(skin.primaryColor.withOpacity(0.6)),
+                    minHeight: 4,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _badge(String text, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.15),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: color.withOpacity(0.5)),
+    ),
+    child: Text(text,
+        style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+  );
+}
+
+class _SkinBallPainter extends CustomPainter {
+  final BallSkin skin;
+  final bool unlocked;
+  final double animValue;
+
+  _SkinBallPainter({required this.skin, required this.unlocked, required this.animValue});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width * 0.35;
+    const r = 26.0;
 
-    if (!isUnlocked) {
-      // Draw locked ball (grayscale)
-      final lockPaint = Paint()
-        ..color = Colors.white12
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(center, radius, lockPaint);
-
-      final borderPaint = Paint()
-        ..color = Colors.white24
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
-      canvas.drawCircle(center, radius, borderPaint);
+    if (!unlocked) {
+      canvas.drawCircle(center, r, Paint()..color = Colors.white.withOpacity(0.08));
+      canvas.drawCircle(center, r, Paint()..color = Colors.white.withOpacity(0.15)
+          ..style = PaintingStyle.stroke..strokeWidth = 1.5);
+      // Lock icon
+      final tp = TextPainter(text: const TextSpan(text: '🔒', style: TextStyle(fontSize: 22)),
+          textDirection: TextDirection.ltr)..layout();
+      tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
       return;
     }
 
-    // Glow
-    final glowPaint = Paint()
-      ..color = skin.primaryColor.withOpacity(0.4)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
-    canvas.drawCircle(center, radius + 6, glowPaint);
+    final t = animValue;
+    final p = skin.primaryColor;
+    final s = skin.secondaryColor;
 
-    // Ball
-    final ballPaint = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.3, -0.3),
-        colors: [
-          Colors.white.withOpacity(0.9),
-          skin.primaryColor,
-          skin.secondaryColor,
-        ],
-        stops: const [0.05, 0.45, 1.0],
-      ).createShader(
-          Rect.fromCircle(center: center, radius: radius));
-    canvas.drawCircle(center, radius, ballPaint);
-
-    // Specular
-    final specPaint = Paint()
-      ..color = Colors.white.withOpacity(0.5)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-    canvas.drawCircle(
-      Offset(center.dx - radius * 0.3, center.dy - radius * 0.3),
-      radius * 0.28,
-      specPaint,
-    );
-
-    // Skin-specific effects
+    // ── Skin-specific background effects ────────────────────
     switch (skin) {
       case BallSkin.fire:
-        _drawFireTrail(canvas, center, radius);
+        // Flame behind ball
+        for (int f = 0; f < 4; f++) {
+          final angle = -pi / 2 + (f - 1.5) * 0.55;
+          final h = 22 + 8 * sin(t * pi * 2 + f);
+          canvas.drawOval(
+            Rect.fromCenter(center: Offset(center.dx + cos(angle) * 8, center.dy - r * 0.5 - h / 2),
+                width: 9, height: h),
+            Paint()..color = Color.lerp(const Color(0xFFFFFF00), const Color(0xFFFF2200), f / 3)!.withOpacity(0.5)
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+          );
+        }
         break;
-      case BallSkin.electric:
-        _drawElectricBolt(canvas, center, radius);
+
+      case BallSkin.ice:
+        // Crystal ring
+        for (int i = 0; i < 6; i++) {
+          final angle = (i / 6) * pi * 2 + t * 0.4;
+          canvas.drawCircle(Offset(center.dx + cos(angle) * (r + 6), center.dy + sin(angle) * (r + 6)),
+              2.5, Paint()..color = const Color(0xFFCCEEFF).withOpacity(0.75));
+        }
         break;
+
       case BallSkin.galaxy:
-        _drawStars(canvas, center, radius);
+        // Orbiting stars
+        for (int i = 0; i < 4; i++) {
+          final angle = (i / 4) * pi * 2 + t * pi * 2;
+          canvas.drawCircle(
+              Offset(center.dx + cos(angle) * (r + 8), center.dy + sin(angle) * (r + 8) * 0.5),
+              2, Paint()..color = Colors.white.withOpacity(0.8)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2));
+        }
         break;
+
+      case BallSkin.electric:
+        // Electric sparks
+        final rng = Random((t * 8).toInt());
+        for (int i = 0; i < 3; i++) {
+          final a = rng.nextDouble() * pi * 2;
+          final len = 12 + rng.nextDouble() * 8;
+          canvas.drawLine(
+            Offset(center.dx + cos(a) * r, center.dy + sin(a) * r),
+            Offset(center.dx + cos(a) * (r + len), center.dy + sin(a) * (r + len)),
+            Paint()..color = const Color(0xFFFFFF00).withOpacity(0.8)..strokeWidth = 1.5
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+          );
+        }
+        break;
+
+      case BallSkin.ghostRider:
+        // Green ghost aura
+        canvas.drawCircle(center, r + 10,
+            Paint()..color = const Color(0xFF44FF88).withOpacity(0.1 + 0.06 * sin(t * pi * 2))
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
+        break;
+
       default:
-        break;
+        // Neon: outer glow ring only
+        canvas.drawCircle(center, r + 8,
+            Paint()..color = p.withOpacity(0.15 + 0.08 * sin(t * pi * 2))
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
     }
-  }
 
-  void _drawFireTrail(Canvas canvas, Offset center, double radius) {
-    final flamePaint = Paint()
-      ..color = const Color(0xFFFF8800).withOpacity(0.6)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-    canvas.drawOval(
-      Rect.fromCenter(
-          center: Offset(center.dx, center.dy + radius * 0.8),
-          width: radius * 0.8,
-          height: radius * 1.2),
-      flamePaint,
-    );
-  }
+    // ── Glow ─────────────────────────────────────────────────
+    canvas.drawCircle(center, r + 4,
+        Paint()..color = p.withOpacity(0.38 + 0.15 * sin(t * pi * 2))
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14));
 
-  void _drawElectricBolt(Canvas canvas, Offset center, double radius) {
-    final boltPaint = Paint()
-      ..color = const Color(0xFFFFFF00).withOpacity(0.8)
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
+    // ── Ball body ─────────────────────────────────────────────
+    canvas.drawCircle(center, r,
+        Paint()..shader = RadialGradient(
+          center: const Alignment(-0.3, -0.4),
+          colors: [Colors.white.withOpacity(0.95), p, s],
+          stops: const [0.04, 0.45, 1.0],
+        ).createShader(Rect.fromCircle(center: center, radius: r)));
 
-    final path = Path();
-    path.moveTo(center.dx + radius * 0.2, center.dy - radius * 0.5);
-    path.lineTo(center.dx - radius * 0.1, center.dy);
-    path.lineTo(center.dx + radius * 0.15, center.dy);
-    path.lineTo(center.dx - radius * 0.2, center.dy + radius * 0.5);
+    // ── Specular ──────────────────────────────────────────────
+    canvas.drawCircle(Offset(center.dx - r * 0.28, center.dy - r * 0.3), r * 0.28,
+        Paint()..color = Colors.white.withOpacity(0.65)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3));
 
-    canvas.drawPath(path, boltPaint);
-  }
-
-  void _drawStars(Canvas canvas, Offset center, double radius) {
-    final starPaint = Paint()
-      ..color = Colors.white.withOpacity(0.7)
-      ..style = PaintingStyle.fill;
-
-    const starPositions = [
-      Offset(0.2, -0.3),
-      Offset(-0.3, 0.1),
-      Offset(0.1, 0.35),
-      Offset(-0.15, -0.2),
-    ];
-
-    for (final pos in starPositions) {
-      canvas.drawCircle(
-        Offset(center.dx + pos.dx * radius * 2,
-            center.dy + pos.dy * radius * 2),
-        2,
-        starPaint,
-      );
+    // ── Ghost Rider skull eyes ────────────────────────────────
+    if (skin == BallSkin.ghostRider) {
+      canvas.drawCircle(Offset(center.dx - 7, center.dy - 3), 3,
+          Paint()..color = Colors.white.withOpacity(0.9));
+      canvas.drawCircle(Offset(center.dx + 7, center.dy - 3), 3,
+          Paint()..color = Colors.white.withOpacity(0.9));
+      canvas.drawCircle(Offset(center.dx - 7, center.dy - 3), 2,
+          Paint()..color = const Color(0xFF44FF88));
+      canvas.drawCircle(Offset(center.dx + 7, center.dy - 3), 2,
+          Paint()..color = const Color(0xFF44FF88));
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _SkinBallPainter old) =>
+      old.animValue != animValue || old.unlocked != unlocked || old.skin != skin;
 }

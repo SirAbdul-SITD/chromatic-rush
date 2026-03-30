@@ -22,11 +22,13 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/icon/
     - assets/sounds/
     - assets/sounds/music_p1.mp3
     - assets/sounds/music_p2.mp3

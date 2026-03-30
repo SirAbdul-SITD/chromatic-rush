@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../game/game_controller.dart';
 import '../game/game_painter.dart';
 import '../utils/game_constants.dart';
 import '../utils/audio_manager.dart';
 import '../utils/settings_manager.dart';
+import '../utils/game_state.dart';
+import '../utils/skin_manager.dart';
 import '../utils/score_history_manager.dart';
 import 'game_over_screen.dart';
 
@@ -38,7 +41,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   int _lastScore = 0;
 
   // Swipe tracking
-  double? _swipeStartX;
 
   static const _tips = [
     'TAP LEFT or RIGHT side to switch lane',
@@ -77,18 +79,22 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
+  bool _gameStarted = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Init audio
+    if (_gameStarted) return;
+    _gameStarted = true;
+
     final settings = context.read<SettingsManager>();
     _audio.init(settings);
 
-    // Init game engine (no collision yet — countdown covers it)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (mounted) {
         final size = MediaQuery.of(context).size;
-        _controller.startGame(size.width, size.height);
+        final skin = context.read<SkinManager>().selectedSkin;
+        await _controller.startGame(size.width, size.height, skin: skin);
         _startCountdown();
       }
     });
@@ -128,14 +134,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       if (_controller.engineState == GameEngineState.playing) {
         _controller.update(dt.clamp(0.0, 0.05));
 
-        // Score changed → correct pass sound
+        // Score changed → correct pass sound + vibration
         if (_controller.score > _lastScore) {
           _lastScore = _controller.score;
           if (_controller.showComboEffect) {
             _audio.playCombo();
             _comboController.forward(from: 0);
+            _vibrateDouble(); // double-pulse for combo
           } else {
             _audio.playCorrectPass();
+            _vibrateMedium(); // satisfying medium bump on each correct pass
           }
         }
 
@@ -150,15 +158,27 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         _gameLoopTimer?.cancel();
         _audio.playLose();
         _audio.stopMusic();
+        _vibrateHeavy(); // strong thud on death
         _onGameOver();
       }
     });
   }
 
   void _onGameOver() async {
-    final score = _controller.score;
-    final best = _controller.bestScore;
+    final score    = _controller.score;
+    final best     = _controller.bestScore; // already saved to prefs by controller
     await ScoreHistoryManager.saveScore(score);
+
+    // Sync GameState best score so home screen shows it correctly
+    if (mounted) {
+      final gameState = context.read<GameState>();
+      await gameState.syncBestScore(best);
+
+      // Unlock skins based on new best
+      final skinManager = context.read<SkinManager>();
+      skinManager.checkUnlocks(best);
+    }
+
     await Future.delayed(const Duration(milliseconds: 500));
     if (mounted) {
       Navigator.of(context).pushReplacement(
@@ -183,12 +203,36 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // ── Haptic helpers ────────────────────────────────────────
+  SettingsManager? get _settings {
+    try { return context.read<SettingsManager>(); } catch (_) { return null; }
+  }
+
+  void _vibrateLight() {
+    if (_settings?.vibrationEnabled ?? true) HapticFeedback.lightImpact();
+  }
+
+  void _vibrateMedium() {
+    if (_settings?.vibrationEnabled ?? true) HapticFeedback.mediumImpact();
+  }
+
+  void _vibrateHeavy() {
+    if (_settings?.vibrationEnabled ?? true) HapticFeedback.heavyImpact();
+  }
+
+  void _vibrateDouble() {
+    if (!(_settings?.vibrationEnabled ?? true)) return;
+    HapticFeedback.mediumImpact();
+    Future.delayed(const Duration(milliseconds: 90), HapticFeedback.mediumImpact);
+  }
+
   // ── Input: tap + swipe ────────────────────────────────────
   void _handleTapDown(TapDownDetails d) {
     if (_countdownActive) return;
     if (_controller.engineState != GameEngineState.playing) return;
     final tapX = d.localPosition.dx;
     _audio.playTap();
+    _vibrateLight(); // light click on every lane switch
     if (tapX < MediaQuery.of(context).size.width / 2) {
       _controller.onMoveLeft();
     } else {
@@ -197,7 +241,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _handleSwipeStart(DragStartDetails d) {
-    _swipeStartX = d.localPosition.dx;
   }
 
   void _handleSwipeEnd(DragEndDetails d) {
@@ -206,12 +249,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final vel = d.velocity.pixelsPerSecond.dx;
     if (vel.abs() < 200) return; // ignore slow drags
     _audio.playTap();
+    _vibrateLight(); // light click on swipe too
     if (vel < 0) {
       _controller.onMoveLeft();
     } else {
       _controller.onMoveRight();
     }
-    _swipeStartX = null;
   }
 
   @override

@@ -8,23 +8,24 @@ class ObstacleData {
   double yPosition;
   final List<Color> laneColors;
   final Color matchColor;
-  int correctLane; // MUTABLE — moving wall updates this each frame
+  int correctLane;
   bool passed;
   bool isColorChanger;
 
-  // Hit animation state
+  // Hit animation
   bool hitSuccess = false;
   bool hitFail = false;
-  double hitAge = 0.0; // 0..1, animated by controller
-  int hitLane = -1;   // which lane was hit
+  double hitAge = 0.0;
+  int hitLane = -1;
 
-  // Rotating bar / split ring
+  // Spinning obstacles (rotatingBar / splitRing)
   double rotationAngle;
   final double rotationSpeed;
 
-  // Moving wall — wallFraction oscillates -1..+1
-  double wallFraction;
-  final double wallSpeed; // fraction per second
+  // Moving wall
+  double wallFraction;      // sin-oscillated -1..+1
+  bool wallFrozen = false;  // frozen when ball approaches
+  final double wallSpeed;
 
   ObstacleData({
     required this.id,
@@ -37,8 +38,8 @@ class ObstacleData {
     this.isColorChanger = false,
     this.rotationAngle = 0,
     this.rotationSpeed = 1.5,
-    this.wallFraction = -1.0,
-    this.wallSpeed = 0.8,
+    this.wallFraction = 0.0,
+    this.wallSpeed = 0.75,
   });
 
   static ObstacleData generate({
@@ -46,43 +47,100 @@ class ObstacleData {
     required Color ballColor,
     required int phase,
     required String id,
+    ObstacleType? lastType, // prevent same spinning type twice in a row
   }) {
     final random = Random();
 
-    // Type distribution per phase
+    // ── Type selection ────────────────────────────────────
+    // Spinning types (rotatingBar, splitRing) must NOT follow each other
+    final isLastSpin = lastType == ObstacleType.rotatingBar ||
+        lastType == ObstacleType.splitRing;
+
     ObstacleType type;
     if (phase == 1) {
+      // Phase 1: only simple color gates
       type = ObstacleType.colorGate;
     } else if (phase == 2) {
+      // Phase 2: gates + moving wall, no spinning yet
       type = [
         ObstacleType.colorGate,
         ObstacleType.colorGate,
-        ObstacleType.rotatingBar,
+        ObstacleType.colorGate,
         ObstacleType.movingWall,
       ][random.nextInt(4)];
     } else {
-      type = [
+      // Phase 3+: all types allowed, but no consecutive spinning
+      final pool = <ObstacleType>[
         ObstacleType.colorGate,
-        ObstacleType.rotatingBar,
+        ObstacleType.colorGate,
         ObstacleType.movingWall,
-        ObstacleType.splitRing,
         ObstacleType.colorChangeGate,
-      ][random.nextInt(5)];
+      ];
+      if (!isLastSpin) {
+        pool.add(ObstacleType.rotatingBar);
+        pool.add(ObstacleType.splitRing);
+      }
+      type = pool[random.nextInt(pool.length)];
     }
 
-    // Build lane colors — one lane always matches ball
-    final allColors = List<Color>.from(GameColors.gameColors)..remove(ballColor);
-    allColors.shuffle(random);
+    // ── Lane colors — guaranteed visually distinct ────────────
+    // Pick 3 colors from the 5 non-ball colors that are maximally
+    // distinct from each other. Yellow+Orange together are forbidden
+    // because they look too similar at a glance.
+    final candidates = List<Color>.from(GameColors.gameColors)..remove(ballColor);
+
+    // Hue values in degrees for each game color (used for separation check)
+    double hueOf(Color c) {
+      if (c == GameColors.red)    return 345;
+      if (c == GameColors.blue)   return 193;
+      if (c == GameColors.green)  return 151;
+      if (c == GameColors.yellow) return 51;
+      if (c == GameColors.purple) return 285;
+      if (c == GameColors.orange) return 30;
+      return 0;
+    }
+
+    bool huesTooClose(Color a, Color b) {
+      double diff = (hueOf(a) - hueOf(b)).abs();
+      if (diff > 180) diff = 360 - diff;
+      return diff < 45; // less than 45° apart = too similar
+    }
+
+    // Try shuffled orderings until we find 3 mutually distinct colors
+    List<Color> picked = [];
+    const maxTries = 40;
+    for (int attempt = 0; attempt < maxTries; attempt++) {
+      candidates.shuffle(random);
+      final a = candidates[0], b = candidates[1], c = candidates[2];
+      if (!huesTooClose(a, b) && !huesTooClose(b, c) && !huesTooClose(a, c)) {
+        picked = [a, b, c];
+        break;
+      }
+    }
+    // Fallback: if we somehow couldn't find a valid triple (shouldn't happen),
+    // use the first 3 with at least the worst offender swapped out
+    if (picked.isEmpty) {
+      candidates.shuffle(random);
+      // Force-replace: if yellow and orange are both in first 3, drop the one
+      // whose hue is closer to the third color
+      picked = [candidates[0], candidates[1], candidates[2]];
+      if (huesTooClose(picked[0], picked[1])) {
+        picked[1] = candidates.firstWhere(
+          (c) => !huesTooClose(c, picked[0]) && !huesTooClose(c, picked[2]),
+          orElse: () => candidates[3],
+        );
+      }
+    }
+
     final correctLane = random.nextInt(3);
-    final laneColors = [allColors[0], allColors[1], allColors[2]];
+    final laneColors  = [picked[0], picked[1], picked[2]];
     laneColors[correctLane] = ballColor;
 
-    final bool isColorChanger = type == ObstacleType.colorChangeGate ||
-        (phase >= 3 && random.nextDouble() < 0.15);
+    // ── Color changer flag ────────────────────────────────
+    final isColorChanger = type == ObstacleType.colorChangeGate;
 
-    // Moving wall starts with gap at left lane (fraction = -1.0)
-    // wallFraction: -1=left lane, 0=center, +1=right lane
-    final startFraction = [-1.0, 0.0, 1.0][random.nextInt(3)];
+    // Moving wall: start at a random sine angle so gap begins in varied positions
+    final startAngle = random.nextDouble() * pi * 2;
 
     return ObstacleData(
       id: id,
@@ -92,22 +150,22 @@ class ObstacleData {
       matchColor: ballColor,
       correctLane: correctLane,
       isColorChanger: isColorChanger,
-      rotationSpeed: phase == 4 ? 2.8 : (phase == 3 ? 2.0 : 1.5),
-      wallFraction: startFraction,
-      wallSpeed: phase >= 3 ? 1.1 : 0.75,
+      rotationSpeed: phase >= 4 ? 2.2 : (phase == 3 ? 1.7 : 1.4),
+      wallFraction: sin(startAngle),
+      wallSpeed: phase >= 4 ? 0.95 : (phase == 3 ? 0.8 : 0.65),
+      rotationAngle: startAngle, // reused as time accumulator for wall
     );
   }
 
   Color get newBallColor {
-    final others = GameColors.gameColors.where((c) => c != matchColor).toList()..shuffle();
+    final others = List<Color>.from(GameColors.gameColors)..remove(matchColor)..shuffle();
     return others.first;
   }
 
-  /// For moving walls: returns which lane (0/1/2) the gap is currently in
+  /// Which lane the gap is currently in: 0=left, 1=center, 2=right
   int get wallLane {
-    // wallFraction: -1=left, 0=center, +1=right
     if (wallFraction < -0.33) return 0;
-    if (wallFraction < 0.33) return 1;
+    if (wallFraction < 0.33)  return 1;
     return 2;
   }
 }

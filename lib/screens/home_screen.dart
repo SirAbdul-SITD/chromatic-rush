@@ -34,10 +34,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     '🎯 Match your ball color to the gate color',
     '⚡ SWAP gates instantly change your ball color',
     '🔥 5 correct passes in a row = COMBO BONUS',
-    '🏎️ Speed increases every 20 seconds — stay sharp!',
-    '🌈 Phase 3: your ball color changes automatically',
-    '🎮 Skins unlock as your best score grows',
+    '🏎️ Speed increases every 30 seconds — stay sharp!',
+    '🌈 Phase 2+: your ball color changes automatically',
+    '🎮 Skins unlock every 50 best-score points',
     '👁️ Watch the gap on moving wall obstacles',
+    '💀 Ghost Rider unlocks at best score 250!',
+    '❄️ Ice skin unlocks at best score 100',
   ];
 
   @override

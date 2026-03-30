@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/game_constants.dart';
-import '../utils/game_state.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
@@ -14,6 +12,7 @@ class LeaderboardScreen extends StatefulWidget {
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
   List<int> _scoreHistory = [];
   bool _loading = true;
+  int _realBest = 0; // loaded directly from SharedPreferences
 
   @override
   void initState() {
@@ -24,17 +23,19 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   Future<void> _loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList('score_history') ?? [];
+    final scores = raw.map(int.parse).toList()..sort((a, b) => b.compareTo(a));
+    // Use the same fresh key as GameState / GameController
+    final savedBest = prefs.getInt('best_score_v2') ?? 0;
     setState(() {
-      _scoreHistory = raw.map(int.parse).toList()
-        ..sort((a, b) => b.compareTo(a));
-      _loading = false;
+      _scoreHistory = scores;
+      _realBest     = savedBest;
+      _loading      = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final gameState = context.watch<GameState>();
-    final best = gameState.bestScore;
+    final best = _realBest; // from SharedPreferences — real value
 
     return Scaffold(
       backgroundColor: GameColors.background,
@@ -144,15 +145,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _buildMilestoneRow(best, 10, '🌟 Survivor', GameColors.neonGreen),
+                  _buildMilestoneRow(best, 50,  '🌟 Survivor',      GameColors.neonGreen),
                   const SizedBox(height: 8),
-                  _buildMilestoneRow(best, 25, '⚡ Speed Demon', GameColors.neonBlue),
+                  _buildMilestoneRow(best, 100, '⚡ Speed Demon',    GameColors.neonBlue),
                   const SizedBox(height: 8),
-                  _buildMilestoneRow(best, 50, '🔥 Chromatic Pro', GameColors.orange),
+                  _buildMilestoneRow(best, 150, '🔥 Chromatic Pro',  GameColors.orange),
                   const SizedBox(height: 8),
-                  _buildMilestoneRow(best, 100, '💎 Neon Legend', GameColors.neonPurple),
+                  _buildMilestoneRow(best, 200, '💎 Neon Legend',    GameColors.neonPurple),
                   const SizedBox(height: 8),
-                  _buildMilestoneRow(best, 200, '🌌 Galaxy Brain', GameColors.red),
+                  _buildMilestoneRow(best, 250, '💀 Ghost Rider',    GameColors.red),
                 ],
               ),
             ),
